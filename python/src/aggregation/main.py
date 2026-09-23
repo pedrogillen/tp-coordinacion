@@ -24,6 +24,7 @@ class AggregationFilter:
             MOM_HOST, OUTPUT_QUEUE
         )
         self.fruit_tops_per_client = {}
+        self.eof_per_client = {}
 
     def _process_data(self, client_id, fruit, amount):
         logging.info("Processing data message")
@@ -39,17 +40,21 @@ class AggregationFilter:
         self.fruit_tops_per_client[client_id] = client_list
 
     def _process_eof(self, client_id):
-        logging.info("Received EOF")
-        fruit_chunk = list(self.fruit_tops_per_client.get(client_id, [])[-TOP_SIZE:])
-        fruit_chunk.reverse()
-        fruit_top = list(
-            map(
-                lambda fruit_item: (fruit_item.fruit, fruit_item.amount),
-                fruit_chunk,
+        self.eof_per_client[client_id] = self.eof_per_client.get(client_id, 0) + 1
+        if self.eof_per_client[client_id] == SUM_AMOUNT:
+            logging.info("Received EOF")
+            client_fruits = self.fruit_tops_per_client.pop(client_id, [])
+            logging.info(f"Sending top {TOP_SIZE} fruits for client {client_id}: {client_fruits}")
+            client_fruits.sort(key=lambda x: x.amount, reverse=True)
+            fruit_chunk = list(client_fruits[:TOP_SIZE])
+            fruit_top = list(
+                map(
+                    lambda fruit_item: (fruit_item.fruit, fruit_item.amount),
+                    fruit_chunk,
+                )
             )
-        )
-        self.output_queue.send(message_protocol.internal.serialize([client_id] + fruit_top))
-        del self.fruit_tops_per_client[client_id]
+            logging.info(f"Sending top {TOP_SIZE} fruits for client {client_id}: {fruit_top}")
+            self.output_queue.send(message_protocol.internal.serialize([client_id] + fruit_top))
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
@@ -64,8 +69,6 @@ class AggregationFilter:
             self._process_eof(client_id)
         else:
             logging.error(f"Invalid message received: {fields}")
-            nack()
-            return
         ack()
 
     def start(self):
