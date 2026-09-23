@@ -23,21 +23,24 @@ class AggregationFilter:
         self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, OUTPUT_QUEUE
         )
-        self.fruit_top = []
+        self.fruit_tops_per_client = {}
 
-    def _process_data(self, fruit, amount):
+    def _process_data(self, client_id, fruit, amount):
         logging.info("Processing data message")
-        for i in range(len(self.fruit_top)):
-            if self.fruit_top[i].fruit == fruit:
-                self.fruit_top[i] = self.fruit_top[i] + fruit_item.FruitItem(
+        client_list = self.fruit_tops_per_client.get(client_id, [])
+        for i in range(len(client_list)):
+            if client_list[i].fruit == fruit:
+                client_list[i] = client_list[i] + fruit_item.FruitItem(
                     fruit, amount
                 )
+                self.fruit_tops_per_client[client_id] = client_list
                 return
-        bisect.insort(self.fruit_top, fruit_item.FruitItem(fruit, amount))
+        bisect.insort(client_list, fruit_item.FruitItem(fruit, amount))
+        self.fruit_tops_per_client[client_id] = client_list
 
-    def _process_eof(self):
+    def _process_eof(self, client_id):
         logging.info("Received EOF")
-        fruit_chunk = list(self.fruit_top[-TOP_SIZE:])
+        fruit_chunk = list(self.fruit_tops_per_client.get(client_id, [])[-TOP_SIZE:])
         fruit_chunk.reverse()
         fruit_top = list(
             map(
@@ -45,16 +48,24 @@ class AggregationFilter:
                 fruit_chunk,
             )
         )
-        self.output_queue.send(message_protocol.internal.serialize(fruit_top))
-        del self.fruit_top
+        self.output_queue.send(message_protocol.internal.serialize([client_id] + fruit_top))
+        del self.fruit_tops_per_client[client_id]
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
-        if len(fields) == 2:
-            self._process_data(*fields)
+        if len(fields) == 3:
+            [client_id, fruit, amount] = fields
+            logging.info(f"Received data message from client {client_id}")
+            self._process_data(client_id, fruit, amount)
+        elif len(fields) == 2 and fields[1] == "EOF":
+            [client_id, _] = fields
+            logging.info(f"Received EOF message from client {client_id}")
+            self._process_eof(client_id)
         else:
-            self._process_eof()
+            logging.error(f"Invalid message received: {fields}")
+            nack()
+            return
         ack()
 
     def start(self):
