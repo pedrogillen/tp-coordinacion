@@ -25,9 +25,10 @@ class AggregationFilter:
         )
         self.fruit_tops_per_client = {}
         self.eof_per_client = {}
+        self.messages_received = 0
 
     def _process_data(self, client_id, fruit, amount):
-        logging.info("Processing data message")
+        # logging.info("Processing data message")
         client_list = self.fruit_tops_per_client.get(client_id, [])
         for i in range(len(client_list)):
             if client_list[i].fruit == fruit:
@@ -57,11 +58,13 @@ class AggregationFilter:
             self.output_queue.send(message_protocol.internal.serialize([client_id] + fruit_top))
 
     def process_messsage(self, message, ack, nack):
-        logging.info("Process message")
+        # logging.info("Process message")
         fields = message_protocol.internal.deserialize(message)
+        self.messages_received += 1
         if len(fields) == 3:
             [client_id, fruit, amount] = fields
-            logging.info(f"Received data message from client {client_id}")
+            if self.messages_received % 20 == 0:
+                logging.info(f"Received data message from client {client_id}")
             self._process_data(client_id, fruit, amount)
         elif len(fields) == 2 and fields[1] == "EOF":
             [client_id, _] = fields

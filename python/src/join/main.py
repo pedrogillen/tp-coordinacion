@@ -22,12 +22,41 @@ class JoinFilter:
         self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, OUTPUT_QUEUE
         )
+        self.tops_per_clients_received = {}
+        self.fruit_tops_per_client = {}
 
     def process_messsage(self, message, ack, nack):
         logging.info("Received top")
-        fruit_top = message_protocol.internal.deserialize(message)
-        self.output_queue.send(message_protocol.internal.serialize(fruit_top))
+        deserialized_message = message_protocol.internal.deserialize(message)
+        client_id = deserialized_message[0]
+        fruit_top = deserialized_message[1:]
+        self._update_fruit_tops(client_id, fruit_top)
+        self.tops_per_clients_received[client_id] = self.tops_per_clients_received.get(client_id, 0) + 1
+        if self.tops_per_clients_received[client_id] == AGGREGATION_AMOUNT:
+            logging.info(f"Received all tops for client {client_id}")
+            fruit_top = self.fruit_tops_per_client.pop(client_id, [])
+            fruit_top.sort(key=lambda x: x[1], reverse=True)
+            fruit_chunk = list(fruit_top[:TOP_SIZE])
+            fruit_top = list(
+                map(
+                    lambda fruit_item: (fruit_item[0], fruit_item[1]),
+                    fruit_chunk,
+                )
+            )
+            logging.info(f"Sending top {TOP_SIZE} fruits for client {client_id}: {fruit_top}")
+            self.output_queue.send(message_protocol.internal.serialize([client_id] + fruit_top))
         ack()
+
+    def _update_fruit_tops(self, client_id, fruit_top):
+        logging.info(f"Updating fruit tops for client {client_id}: {fruit_top}")
+        actual_top = self.fruit_tops_per_client.get(client_id, [])
+        actual_top_dict = {fruit: amount for fruit, amount in actual_top}
+        for fruit, amount in fruit_top:
+            current_amount = actual_top_dict.get(fruit, 0)
+            actual_top_dict[fruit] = current_amount if current_amount > amount else amount
+        updated_top = list(actual_top_dict.items())
+        updated_top.sort(key=lambda x: x[1], reverse=True)
+        self.fruit_tops_per_client[client_id] = updated_top[:TOP_SIZE]
 
     def start(self):
         self.input_queue.start_consuming(self.process_messsage)

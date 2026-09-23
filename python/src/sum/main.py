@@ -23,6 +23,7 @@ class SumFilter:
         self.control_thread.start()
         self.fruit_count_lock = threading.Lock()
         self.amount_by_fruit_and_client = {}
+        self.messages_received = 0
 
     def _create_control_exchange(self):
         logging.info(f"Creating control exchange for client")
@@ -79,9 +80,11 @@ class SumFilter:
 
     def process_data_messsage(self, message, ack, nack):
         fields = message_protocol.internal.deserialize(message)
+        self.messages_received += 1
         if len(fields) == 3:
             [client_id, fruit, amount] = fields
-            logging.info(f"Received data message from client {client_id}")
+            if self.messages_received % 20 == 0:
+                logging.info(f"Received data message from client {client_id}")
             self._process_data(client_id, fruit, amount)
         elif len(fields) == 2 and fields[1] == "EOF":
             [client_id, _] = fields
