@@ -1,5 +1,6 @@
 import os
 import logging
+import signal
 
 from common import middleware, message_protocol, fruit_item
 
@@ -61,11 +62,19 @@ class JoinFilter:
     def start(self):
         self.input_queue.start_consuming(self.process_messsage)
 
+    def stop(self):
+        self.input_queue.close()
+        self.output_queue.close()
+
 
 def main():
     logging.basicConfig(level=logging.INFO)
     join_filter = JoinFilter()
-    join_filter.start()
+    signal.signal(signal.SIGTERM, lambda signum, frame: join_filter.stop())
+    try:
+        join_filter.start()
+    except KeyboardInterrupt:
+        join_filter.stop()
 
     return 0
 
