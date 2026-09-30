@@ -3,6 +3,7 @@ import logging
 import sys
 import threading
 import hashlib
+import zlib
 import signal
 
 from common import middleware, message_protocol, fruit_item
@@ -15,6 +16,7 @@ SUM_PREFIX = os.environ["SUM_PREFIX"]
 SUM_CONTROL_EXCHANGE = "SUM_CONTROL_EXCHANGE"
 AGGREGATION_AMOUNT = int(os.environ["AGGREGATION_AMOUNT"])
 AGGREGATION_PREFIX = os.environ["AGGREGATION_PREFIX"]
+FNV32_OFFSET, FNV32_PRIME = 0x811C9DC5, 0x01000193
 
 class SumFilter:
     def __init__(self):
@@ -133,10 +135,8 @@ class SumFilter:
             self.messages_received_per_client.pop(client_id, 0)
 
         for final_fruit_item in client_fruits.values():
-            digest_hex = hashlib.md5(
-                final_fruit_item.fruit.encode("utf-8")
-            ).hexdigest()
-            aggregator_idx = int(digest_hex, 16) % AGGREGATION_AMOUNT
+            # Usar FNV-1a para calcular el índice del agregador
+            aggregator_idx = fnv1a_32(final_fruit_item.fruit.encode("utf-8")) % AGGREGATION_AMOUNT
 
             target_exchange = self.data_output_exchanges[aggregator_idx]
             logging.info(f"Sending data message for client {client_id} to exchange {target_exchange.exchange_name}: {final_fruit_item.fruit} - {final_fruit_item.amount}")
@@ -193,6 +193,13 @@ def main():
     sum_filter = SumFilter()
     sum_filter.start()
     return 0
+
+def fnv1a_32(data: bytes) -> int:           
+    h = FNV32_OFFSET
+    for byte in data:
+        h ^= byte
+        h = (h * FNV32_PRIME) & 0xFFFFFFFF
+    return h
 
 
 if __name__ == "__main__":
