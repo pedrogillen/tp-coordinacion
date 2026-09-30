@@ -56,6 +56,10 @@ class RabbitMQMiddleware:
         except Exception as e:
             raise MessageMiddlewareCloseError("Error closing connection") from e
 
+    def close_threadsafe(self):
+        if self.connection and self.connection.is_open:
+            self.connection.add_callback_threadsafe(self.close)
+
     @abstractmethod
     def send(self, message):
         pass
