@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 import threading
 import hashlib
 import signal
@@ -30,7 +31,6 @@ class SumFilter:
         self.eof_lock = threading.Lock()
         self.eof_received_per_client = set()
         self.data_output_exchanges = []
-        self.control_thread.start()
 
     def _create_control_exchange(self):
         logging.info(f"Creating control exchange for client")
@@ -165,16 +165,27 @@ class SumFilter:
         ack()
 
     def start(self):
-        self.input_queue.start_consuming(self.process_data_messsage)
+        try:
+            self.control_thread.start()
+            self.input_queue.start_consuming(self.process_data_messsage)
+        except Exception as e:
+            logging.error(f"Error in main loop: {e}")
+            self.stop()
+        finally:
+            self.stop()
 
     def stop(self):
-        self.input_queue.close()
-        self.control_exchange_producer.close()
-        self.control_exchange_producer_in_thread.close_threadsafe()
-        self.control_exchange_consumer.close_threadsafe()
-        for data_output_exchange in self.data_output_exchanges:
-            data_output_exchange.close_threadsafe()
-        self.control_thread.join()
+        try:
+            self.input_queue.close()
+            self.control_exchange_producer.close()
+            self.control_exchange_producer_in_thread.close_threadsafe()
+            self.control_exchange_consumer.close_threadsafe()
+            for data_output_exchange in self.data_output_exchanges:
+                data_output_exchange.close_threadsafe()
+            self.control_thread.join()
+        except Exception as e:
+            logging.error(f"Error stopping SumFilter: {e}")
+            sys.exit(1)
 
 def main():
     logging.basicConfig(level=logging.INFO)

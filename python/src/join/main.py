@@ -1,6 +1,7 @@
 import os
 import logging
 import signal
+import sys
 
 from common import middleware, message_protocol, fruit_item
 
@@ -60,11 +61,21 @@ class JoinFilter:
         self.fruit_tops_per_client[client_id] = updated_top[:TOP_SIZE]
 
     def start(self):
-        self.input_queue.start_consuming(self.process_messsage)
+        try:
+            self.input_queue.start_consuming(self.process_messsage)
+        except Exception as e:
+            logging.error(f"Error in main loop: {e}")
+            self.stop()
+        finally:
+            self.stop()
 
     def stop(self):
-        self.input_queue.close()
-        self.output_queue.close()
+        try:
+            self.input_queue.close()
+            self.output_queue.close()
+        except Exception as e:
+            logging.error(f"Error closing queues: {e}")
+            sys.exit(1)
 
 
 def main():

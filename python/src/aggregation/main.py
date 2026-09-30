@@ -2,6 +2,7 @@ import os
 import logging
 import bisect
 import signal
+import sys
 
 from common import middleware, message_protocol, fruit_item
 
@@ -76,11 +77,21 @@ class AggregationFilter:
         ack()
 
     def start(self):
-        self.input_exchange.start_consuming(self.process_messsage)
+        try:
+            self.input_exchange.start_consuming(self.process_messsage)
+        except Exception as e:
+            logging.error(f"Error in main loop: {e}")
+            self.stop()
+        finally:
+            self.stop()
 
     def stop(self):
-        self.input_exchange.close()
-        self.output_queue.close()
+        try:
+            self.input_exchange.close()
+            self.output_queue.close()
+        except Exception as e:
+            logging.error(f"Error closing queues: {e}")
+            sys.exit(1)
 
 
 def main():
